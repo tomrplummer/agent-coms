@@ -1,0 +1,3 @@
+interface:
+  display_name: "Telegram Away"
+  short_description: "Use coms CLI for Telegram async replies (no manual rid typing)"

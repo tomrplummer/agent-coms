@@ -1,0 +1,25 @@
+# Go build artifacts
+/bin/
+/dist/
+/coms
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Test and coverage output
+*.out
+*.coverprofile
+coverage.*
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and OS noise
+.idea/
+.vscode/
+.DS_Store
