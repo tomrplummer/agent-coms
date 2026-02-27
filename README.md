@@ -8,6 +8,8 @@ It is designed for away-from-keyboard workflows in Codex/OpenCode/Cursor where t
 - wait or poll for your response,
 - correlate the reply automatically to the latest pending message.
 
+For AI-driven onboarding, see `ai_install_guide.md` for a step-by-step install-wizard playbook.
+
 ## Platform support
 
 - Linux
