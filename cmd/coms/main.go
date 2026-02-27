@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"coms/internal/config"
-	"coms/internal/correlation"
-	"coms/internal/state"
-	"coms/internal/telegram"
+	"github.com/tomrplummer/agent-coms/internal/config"
+	"github.com/tomrplummer/agent-coms/internal/correlation"
+	"github.com/tomrplummer/agent-coms/internal/state"
+	"github.com/tomrplummer/agent-coms/internal/telegram"
 )
 
 const (

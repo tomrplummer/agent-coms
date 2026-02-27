@@ -8,6 +8,13 @@ It is designed for away-from-keyboard workflows in Codex/OpenCode/Cursor where t
 - wait or poll for your response,
 - correlate the reply reliably with a request ID (`rid`).
 
+## Platform support
+
+- Linux
+- macOS
+- Windows (PowerShell or cmd.exe)
+- Command name stays `coms` (the Windows binary file is `coms.exe`)
+
 ## What this project includes
 
 - `coms` CLI (`cmd/coms`)
@@ -19,35 +26,115 @@ It is designed for away-from-keyboard workflows in Codex/OpenCode/Cursor where t
 ## Requirements
 
 - Go 1.22+
+- A Telegram account
 - A Telegram bot token in `COMS_TELEGRAM_BOT_TOKEN`
-- A private Telegram chat with your bot
+- A private Telegram DM with your bot
+
+## Telegram setup help
+
+1. In Telegram, open **BotFather** and run `/newbot`.
+2. Save the bot token BotFather gives you.
+3. Open a private DM with your new bot (`https://t.me/<your_bot_username>`).
+4. Send at least one message to the bot (for example: `hello`).
+5. Keep this workflow in a private DM, not a group chat.
+
+If `coms init-chat` says `chat_not_found`:
+
+- confirm you sent a DM to the same bot token,
+- send one more message to the bot,
+- run `init-chat` again.
 
 ## Quick setup
 
-1. Create a bot with BotFather and copy the token.
-2. Set environment variable:
+1. Set bot token environment variable.
+
+Linux/macOS (bash/zsh):
 
 ```bash
 export COMS_TELEGRAM_BOT_TOKEN="<token>"
 ```
 
-3. Build and install:
+Windows PowerShell:
 
-```bash
-go build -o ~/.local/bin/coms ./cmd/coms
+```powershell
+$env:COMS_TELEGRAM_BOT_TOKEN = "<token>"
 ```
 
-4. Send your bot one DM in Telegram.
-5. Initialize chat routing:
+Windows cmd.exe:
+
+```bat
+set COMS_TELEGRAM_BOT_TOKEN=<token>
+```
+
+Optional persistence across new shells:
+
+- PowerShell or cmd.exe: `setx COMS_TELEGRAM_BOT_TOKEN "<token>"`
+
+2. Build the CLI from this repo.
+
+Linux/macOS:
 
 ```bash
-coms init-chat
+go build -o ./bin/coms ./cmd/coms
 ```
+
+Windows PowerShell or cmd.exe:
+
+```powershell
+go build -o .\bin\coms.exe .\cmd\coms
+```
+
+3. Initialize chat routing (detects and stores your `chat_id`).
+
+Linux/macOS:
+
+```bash
+./bin/coms init-chat
+```
+
+Windows:
+
+```powershell
+.\bin\coms.exe init-chat
+```
+
+4. Send and receive one test message.
+
+Linux/macOS:
+
+```bash
+./bin/coms send --message "Test from coms"
+./bin/coms wait --timeout-sec 120
+```
+
+Windows:
+
+```powershell
+.\bin\coms.exe send --message "Test from coms"
+.\bin\coms.exe wait --timeout-sec 120
+```
+
+## Alternative install (Go toolchain)
+
+You can also install directly with:
+
+```bash
+go install github.com/tomrplummer/agent-coms/cmd/coms@latest
+```
+
+Then ensure your Go bin directory is on `PATH`.
+
+- Linux/macOS default: `~/go/bin/coms`
+- Windows default: `%USERPROFILE%\go\bin\coms.exe`
+
+## Default file locations
 
 Defaults written by `init-chat`:
 
-- config: `~/.config/coms/config.toml`
-- state: `~/.local/state/coms/state.json`
+| OS | Config path | State path |
+| --- | --- | --- |
+| Linux/macOS | `~/.config/coms/config.toml` | `~/.local/state/coms/state.json` |
+| Windows | `%USERPROFILE%\\.config\\coms\\config.toml` | `%USERPROFILE%\\.local\\state\\coms\\state.json` |
 
 ## Environment variables
 
@@ -55,7 +142,7 @@ Required:
 
 - `COMS_TELEGRAM_BOT_TOKEN` - bot token from BotFather
 
-Optional (path overrides):
+Optional (path overrides, all platforms):
 
 - `XDG_CONFIG_HOME` - controls where config defaults are resolved
 - `XDG_STATE_HOME` - controls where state defaults are resolved
@@ -112,22 +199,36 @@ Skill source in this repo:
 
 ### OpenCode
 
-Install/update the skill package:
+Linux/macOS:
 
 ```bash
 mkdir -p ~/.config/opencode/skills
 cp -R skills/telegram-away ~/.config/opencode/skills/
 ```
 
+Windows (PowerShell):
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\\.config\\opencode\\skills" | Out-Null
+Copy-Item -Recurse -Force "skills\\telegram-away" "$HOME\\.config\\opencode\\skills\\"
+```
+
 Restart OpenCode sessions after updating skills.
 
 ### Codex
 
-Install/update the same skill package:
+Linux/macOS:
 
 ```bash
 mkdir -p ~/.codex/skills
 cp -R skills/telegram-away ~/.codex/skills/
+```
+
+Windows (PowerShell):
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\\.codex\\skills" | Out-Null
+Copy-Item -Recurse -Force "skills\\telegram-away" "$HOME\\.codex\\skills\\"
 ```
 
 Restart Codex sessions after updating skills.
@@ -136,18 +237,32 @@ Restart Codex sessions after updating skills.
 
 Install as a personal or project skill.
 
-Personal skill (available everywhere):
+Personal skill (available everywhere) - Linux/macOS:
 
 ```bash
 mkdir -p ~/.cursor/skills
 cp -R skills/telegram-away ~/.cursor/skills/
 ```
 
-Project skill (checked into repo for teammates):
+Personal skill (available everywhere) - Windows (PowerShell):
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\\.cursor\\skills" | Out-Null
+Copy-Item -Recurse -Force "skills\\telegram-away" "$HOME\\.cursor\\skills\\"
+```
+
+Project skill (checked into repo for teammates) - Linux/macOS:
 
 ```bash
 mkdir -p .cursor/skills
 cp -R skills/telegram-away .cursor/skills/
+```
+
+Project skill (checked into repo for teammates) - Windows (PowerShell):
+
+```powershell
+New-Item -ItemType Directory -Force ".cursor\\skills" | Out-Null
+Copy-Item -Recurse -Force "skills\\telegram-away" ".cursor\\skills\\"
 ```
 
 Restart Cursor chats after updating skills.

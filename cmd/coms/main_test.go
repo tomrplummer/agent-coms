@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"coms/internal/state"
-	"coms/internal/telegram"
+	"github.com/tomrplummer/agent-coms/internal/state"
+	"github.com/tomrplummer/agent-coms/internal/telegram"
 )
 
 func TestResolveRIDSelectionUsesPendingWhenRIDMissing(t *testing.T) {
