@@ -12,7 +12,6 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	in := State{
 		UpdateOffset: 42,
 		Pending: &PendingRequest{
-			RID:           "abc123",
 			ChatID:        123,
 			SentMessageID: 77,
 			SentAtUnix:    1700000000,
@@ -31,9 +30,6 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if out.Pending == nil {
 		t.Fatal("Pending should not be nil")
-	}
-	if out.Pending.RID != in.Pending.RID {
-		t.Fatalf("Pending.RID = %q, want %q", out.Pending.RID, in.Pending.RID)
 	}
 	if out.Pending.ChatID != in.Pending.ChatID {
 		t.Fatalf("Pending.ChatID = %d, want %d", out.Pending.ChatID, in.Pending.ChatID)
@@ -60,12 +56,9 @@ func TestAdvanceOffset(t *testing.T) {
 
 func TestSetAndClearPending(t *testing.T) {
 	st := State{}
-	SetPending(&st, PendingRequest{RID: "abc123", SentMessageID: 10})
+	SetPending(&st, PendingRequest{SentMessageID: 10})
 	if st.Pending == nil {
 		t.Fatal("Pending should not be nil")
-	}
-	if st.Pending.RID != "abc123" {
-		t.Fatalf("Pending.RID = %q, want %q", st.Pending.RID, "abc123")
 	}
 	ClearPending(&st)
 	if st.Pending != nil {

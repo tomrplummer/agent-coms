@@ -23,40 +23,39 @@ Do not use this skill for normal in-terminal collaboration.
 
 ## Workflow
 
-1. If asking for user input, generate or reuse a request ID (`rid`).
-2. Send concise context and one direct question:
+1. Send concise context and one direct question:
 
 ```bash
-coms send --rid <rid> --message "<question or status>"
+coms send --message "<question or status>"
 ```
 
-3. If a reply is required before continuing, wait with timeout:
+2. If a reply is required before continuing, wait with timeout:
 
 ```bash
 coms wait --timeout-sec 900
 ```
 
-`wait` uses the pending request automatically. Use `--rid <rid>` only when targeting a specific request.
+`wait` uses the pending message automatically.
 
-4. If non-blocking behavior is needed, poll once:
+3. If non-blocking behavior is needed, poll once:
 
 ```bash
 coms poll
 ```
 
-`poll` also uses the pending request automatically.
+`poll` also uses the pending message automatically.
 
-5. On completion/failure, send final status message when user asked for async updates:
+4. On completion/failure, send final status message when user asked for async updates:
 
 ```bash
-coms send --rid <rid> --message "Task complete: <result>"
+coms send --message "Task complete: <result>"
 ```
 
 ## Message Conventions
 
 - Keep a single pending question whenever possible.
-- The user should reply directly in Telegram; they do not need to type `rid`.
-- Keep `rid` in sent prompts for machine correlation.
+- The user should reply directly in Telegram.
+- Do not add request IDs in messages.
 - Keep messages short and actionable.
 - Ask one decision question per message.
 - Include key context needed to answer from a phone.

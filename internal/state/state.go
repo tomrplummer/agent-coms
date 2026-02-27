@@ -15,10 +15,9 @@ type State struct {
 }
 
 type PendingRequest struct {
-	RID           string `json:"rid"`
-	ChatID        int64  `json:"chat_id,omitempty"`
-	SentMessageID int64  `json:"sent_message_id,omitempty"`
-	SentAtUnix    int64  `json:"sent_at_unix,omitempty"`
+	ChatID        int64 `json:"chat_id,omitempty"`
+	SentMessageID int64 `json:"sent_message_id,omitempty"`
+	SentAtUnix    int64 `json:"sent_at_unix,omitempty"`
 }
 
 func Load(path string) (State, error) {

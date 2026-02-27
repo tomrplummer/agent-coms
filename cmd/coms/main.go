@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/tomrplummer/agent-coms/internal/config"
-	"github.com/tomrplummer/agent-coms/internal/correlation"
 	"github.com/tomrplummer/agent-coms/internal/state"
 	"github.com/tomrplummer/agent-coms/internal/telegram"
 )
@@ -60,9 +59,9 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  init-chat   Detect Telegram chat_id from recent updates and save config")
-	fmt.Println("  send        Send message with request id")
-	fmt.Println("  wait        Wait for matching reply (request id or pending request)")
-	fmt.Println("  poll        Check once for matching reply (request id or pending request)")
+	fmt.Println("  send        Send message")
+	fmt.Println("  wait        Wait for matching reply")
+	fmt.Println("  poll        Check once for matching reply")
 	fmt.Println("  ack         Advance update offset manually")
 	fmt.Println()
 	fmt.Println("Environment:")
@@ -158,11 +157,9 @@ func runSend(args []string) int {
 	fs.SetOutput(io.Discard)
 	var configPath string
 	var messageText string
-	var rid string
 	var tag string
 	fs.StringVar(&configPath, "config", "", "path to config.toml")
 	fs.StringVar(&messageText, "message", "", "message text")
-	fs.StringVar(&rid, "rid", "", "request id")
 	fs.StringVar(&tag, "tag", "", "optional tag")
 	if err := fs.Parse(args); err != nil {
 		printError(exitConfigError, "invalid_flags", err.Error(), nil)
@@ -179,28 +176,13 @@ func runSend(args []string) int {
 		return code
 	}
 
-	rid = correlation.NormalizeRID(rid)
-	if rid == "" {
-		generated, err := correlation.GenerateRID()
-		if err != nil {
-			printError(exitConfigError, "rid_generation_failed", err.Error(), nil)
-			return exitConfigError
-		}
-		rid = generated
-	}
-	if !correlation.IsValidRID(rid) {
-		printError(exitConfigError, "invalid_rid", "rid must be 3-64 chars [a-z0-9_-]", nil)
-		return exitConfigError
-	}
-
-	outbound := composeOutboundMessage(messageText, rid, tag)
+	outbound := composeOutboundMessage(messageText, tag)
 	msg, err := ctx.client.SendMessage(context.Background(), ctx.cfg.Telegram.ChatID, outbound)
 	if err != nil {
 		return handleTelegramError(err)
 	}
 
 	state.SetPending(&ctx.st, state.PendingRequest{
-		RID:           rid,
 		ChatID:        ctx.cfg.Telegram.ChatID,
 		SentMessageID: msg.MessageID,
 		SentAtUnix:    msg.Date,
@@ -212,7 +194,6 @@ func runSend(args []string) int {
 
 	printJSON(map[string]any{
 		"status":       "ok",
-		"rid":          rid,
 		"chat_id":      ctx.cfg.Telegram.ChatID,
 		"message_id":   msg.MessageID,
 		"sent_at_unix": msg.Date,
@@ -224,10 +205,8 @@ func runWait(args []string) int {
 	fs := flag.NewFlagSet("wait", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var configPath string
-	var rid string
 	var timeoutSec int
 	fs.StringVar(&configPath, "config", "", "path to config.toml")
-	fs.StringVar(&rid, "rid", "", "request id (optional if pending request exists)")
 	fs.IntVar(&timeoutSec, "timeout-sec", 0, "timeout in seconds")
 	if err := fs.Parse(args); err != nil {
 		printError(exitConfigError, "invalid_flags", err.Error(), nil)
@@ -239,12 +218,7 @@ func runWait(args []string) int {
 		return code
 	}
 
-	selection, err := resolveRIDSelection(&ctx.st, ctx.cfg.Telegram.ChatID, rid)
-	if err != nil {
-		printError(exitConfigError, "invalid_rid", err.Error(), nil)
-		return exitConfigError
-	}
-	rid = selection.RID
+	selection := resolveSelection(&ctx.st, ctx.cfg.Telegram.ChatID)
 
 	if timeoutSec <= 0 {
 		timeoutSec = ctx.cfg.Telegram.DefaultTimeoutSec
@@ -260,7 +234,6 @@ func runWait(args []string) int {
 		if remaining <= 0 {
 			printJSON(map[string]any{
 				"status":      "timeout",
-				"rid":         rid,
 				"timeout_sec": timeoutSec,
 			})
 			return exitTimeout
@@ -288,11 +261,7 @@ func runWait(args []string) int {
 		}
 
 		matched, changed := applyUpdates(&ctx.st, updates, ctx.cfg.Telegram.ChatID, selection, 0)
-		matchRID := rid
-		if matched != nil && matched.RID != "" {
-			matchRID = matched.RID
-		}
-		if matchRID != "" && clearPendingForRID(&ctx.st, matchRID) {
+		if matched != nil && clearPendingForSelection(&ctx.st, selection) {
 			changed = true
 		}
 		if changed {
@@ -304,7 +273,6 @@ func runWait(args []string) int {
 		if matched != nil {
 			printJSON(map[string]any{
 				"status":        "ok",
-				"rid":           matchRID,
 				"update_id":     matched.UpdateID,
 				"message_id":    matched.Message.MessageID,
 				"message_text":  matched.Message.Text,
@@ -320,10 +288,8 @@ func runPoll(args []string) int {
 	fs := flag.NewFlagSet("poll", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var configPath string
-	var rid string
 	var sinceRaw string
 	fs.StringVar(&configPath, "config", "", "path to config.toml")
-	fs.StringVar(&rid, "rid", "", "request id (optional if pending request exists)")
 	fs.StringVar(&sinceRaw, "since", "", "unix timestamp or RFC3339")
 	if err := fs.Parse(args); err != nil {
 		printError(exitConfigError, "invalid_flags", err.Error(), nil)
@@ -341,12 +307,7 @@ func runPoll(args []string) int {
 		return code
 	}
 
-	selection, err := resolveRIDSelection(&ctx.st, ctx.cfg.Telegram.ChatID, rid)
-	if err != nil {
-		printError(exitConfigError, "invalid_rid", err.Error(), nil)
-		return exitConfigError
-	}
-	rid = selection.RID
+	selection := resolveSelection(&ctx.st, ctx.cfg.Telegram.ChatID)
 
 	updates, err := ctx.client.GetUpdates(context.Background(), ctx.st.UpdateOffset, 0)
 	if err != nil {
@@ -354,11 +315,7 @@ func runPoll(args []string) int {
 	}
 
 	matched, changed := applyUpdates(&ctx.st, updates, ctx.cfg.Telegram.ChatID, selection, since)
-	matchRID := rid
-	if matched != nil && matched.RID != "" {
-		matchRID = matched.RID
-	}
-	if matchRID != "" && clearPendingForRID(&ctx.st, matchRID) {
+	if matched != nil && clearPendingForSelection(&ctx.st, selection) {
 		changed = true
 	}
 	if changed {
@@ -371,14 +328,12 @@ func runPoll(args []string) int {
 	if matched == nil {
 		printJSON(map[string]any{
 			"status": "no_match",
-			"rid":    matchRID,
 		})
 		return exitOK
 	}
 
 	printJSON(map[string]any{
 		"status":        "ok",
-		"rid":           matchRID,
 		"update_id":     matched.UpdateID,
 		"message_id":    matched.Message.MessageID,
 		"message_text":  matched.Message.Text,
@@ -477,19 +432,15 @@ func loadContext(configPathArg string, allowMissingChat bool) (*commandContext, 
 type matchedUpdate struct {
 	UpdateID int64
 	Message  *telegram.Message
-	RID      string
 }
 
-type ridSelection struct {
-	RID                string
-	Pending            *state.PendingRequest
-	AllowPlainFallback bool
-	AllowAnyRID        bool
+type matchSelection struct {
+	Pending         *state.PendingRequest
+	AllowAnyMessage bool
 }
 
-func applyUpdates(st *state.State, updates []telegram.Update, chatID int64, selection ridSelection, since int64) (*matchedUpdate, bool) {
+func applyUpdates(st *state.State, updates []telegram.Update, chatID int64, selection matchSelection, since int64) (*matchedUpdate, bool) {
 	before := st.UpdateOffset
-	targetRID := correlation.NormalizeRID(selection.RID)
 
 	for _, update := range updates {
 		state.AdvanceOffset(st, update.UpdateID)
@@ -503,45 +454,26 @@ func applyUpdates(st *state.State, updates []telegram.Update, chatID int64, sele
 		if since > 0 && msg.Date < since {
 			continue
 		}
-		if targetRID != "" && messageMatchesRID(msg, targetRID) {
-			return &matchedUpdate{UpdateID: update.UpdateID, Message: msg, RID: targetRID}, st.UpdateOffset != before
-		}
-		if selection.AllowAnyRID {
-			if extractedRID, ok := extractRIDFromMessage(msg); ok {
-				return &matchedUpdate{UpdateID: update.UpdateID, Message: msg, RID: extractedRID}, st.UpdateOffset != before
+		if selection.Pending != nil {
+			if messageMatchesPendingFallback(msg, selection.Pending) {
+				return &matchedUpdate{UpdateID: update.UpdateID, Message: msg}, st.UpdateOffset != before
 			}
+			continue
 		}
-		if selection.AllowPlainFallback && selection.Pending != nil && messageMatchesPendingFallback(msg, selection.Pending) {
-			fallbackRID := targetRID
-			if fallbackRID == "" {
-				fallbackRID = correlation.NormalizeRID(selection.Pending.RID)
-			}
-			return &matchedUpdate{UpdateID: update.UpdateID, Message: msg, RID: fallbackRID}, st.UpdateOffset != before
+		if selection.AllowAnyMessage && strings.TrimSpace(msg.Text) != "" {
+			return &matchedUpdate{UpdateID: update.UpdateID, Message: msg}, st.UpdateOffset != before
 		}
 	}
 
 	return nil, st.UpdateOffset != before
 }
 
-func resolveRIDSelection(st *state.State, chatID int64, ridRaw string) (ridSelection, error) {
-	rid := correlation.NormalizeRID(ridRaw)
-	if rid != "" {
-		if !correlation.IsValidRID(rid) {
-			return ridSelection{}, errors.New("--rid must match [a-z0-9_-]")
-		}
-		pending := pendingForRID(st, chatID, rid)
-		return ridSelection{RID: rid, Pending: pending}, nil
-	}
-
+func resolveSelection(st *state.State, chatID int64) matchSelection {
 	pending := currentPendingForChat(st, chatID)
 	if pending == nil {
-		return ridSelection{AllowAnyRID: true}, nil
+		return matchSelection{AllowAnyMessage: true}
 	}
-	rid = correlation.NormalizeRID(pending.RID)
-	if !correlation.IsValidRID(rid) {
-		return ridSelection{}, errors.New("pending request RID is invalid; send a new message")
-	}
-	return ridSelection{RID: rid, Pending: pending, AllowPlainFallback: true}, nil
+	return matchSelection{Pending: pending}
 }
 
 func currentPendingForChat(st *state.State, chatID int64) *state.PendingRequest {
@@ -555,22 +487,14 @@ func currentPendingForChat(st *state.State, chatID int64) *state.PendingRequest 
 	return pending
 }
 
-func pendingForRID(st *state.State, chatID int64, rid string) *state.PendingRequest {
-	pending := currentPendingForChat(st, chatID)
-	if pending == nil {
-		return nil
-	}
-	if correlation.NormalizeRID(pending.RID) != rid {
-		return nil
-	}
-	return pending
-}
-
-func clearPendingForRID(st *state.State, rid string) bool {
-	if st == nil || st.Pending == nil {
+func clearPendingForSelection(st *state.State, selection matchSelection) bool {
+	if st == nil || st.Pending == nil || selection.Pending == nil {
 		return false
 	}
-	if correlation.NormalizeRID(st.Pending.RID) != correlation.NormalizeRID(rid) {
+	if selection.Pending.ChatID != 0 && st.Pending.ChatID != selection.Pending.ChatID {
+		return false
+	}
+	if selection.Pending.SentMessageID > 0 && st.Pending.SentMessageID != selection.Pending.SentMessageID {
 		return false
 	}
 	state.ClearPending(st)
@@ -585,40 +509,6 @@ func messageFromUpdate(update telegram.Update) *telegram.Message {
 		return update.EditedMessage
 	}
 	return nil
-}
-
-func messageMatchesRID(msg *telegram.Message, rid string) bool {
-	if msg == nil {
-		return false
-	}
-	if correlation.TextContainsRID(msg.Text, rid) {
-		return true
-	}
-	if msg.ReplyToMessage != nil && correlation.TextContainsRID(msg.ReplyToMessage.Text, rid) {
-		return true
-	}
-	return false
-}
-
-func extractRIDFromMessage(msg *telegram.Message) (string, bool) {
-	if msg == nil {
-		return "", false
-	}
-	if rid, ok := correlation.ExtractRID(msg.Text); ok {
-		rid = correlation.NormalizeRID(rid)
-		if correlation.IsValidRID(rid) {
-			return rid, true
-		}
-	}
-	if msg.ReplyToMessage != nil {
-		if rid, ok := correlation.ExtractRID(msg.ReplyToMessage.Text); ok {
-			rid = correlation.NormalizeRID(rid)
-			if correlation.IsValidRID(rid) {
-				return rid, true
-			}
-		}
-	}
-	return "", false
 }
 
 func messageMatchesPendingFallback(msg *telegram.Message, pending *state.PendingRequest) bool {
@@ -646,13 +536,13 @@ func messageMatchesPendingFallback(msg *telegram.Message, pending *state.Pending
 	return true
 }
 
-func composeOutboundMessage(messageText, rid, tag string) string {
-	parts := []string{fmt.Sprintf("[rid:%s]", rid)}
-	if strings.TrimSpace(tag) != "" {
-		parts = append(parts, fmt.Sprintf("[tag:%s]", strings.TrimSpace(tag)))
+func composeOutboundMessage(messageText, tag string) string {
+	messageText = strings.TrimSpace(messageText)
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return messageText
 	}
-	parts = append(parts, strings.TrimSpace(messageText))
-	return strings.Join(parts, " ")
+	return fmt.Sprintf("[tag:%s] %s", tag, messageText)
 }
 
 func senderLabel(msg *telegram.Message) string {

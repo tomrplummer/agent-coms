@@ -7,47 +7,49 @@ import (
 	"github.com/tomrplummer/agent-coms/internal/telegram"
 )
 
-func TestResolveRIDSelectionUsesPendingWhenRIDMissing(t *testing.T) {
+func TestResolveSelectionUsesPendingWhenAvailable(t *testing.T) {
 	st := state.State{
-		Pending: &state.PendingRequest{RID: "Deploy42", ChatID: 123},
+		Pending: &state.PendingRequest{ChatID: 123, SentMessageID: 10},
 	}
 
-	selection, err := resolveRIDSelection(&st, 123, "")
-	if err != nil {
-		t.Fatalf("resolveRIDSelection() error = %v", err)
-	}
-	if selection.RID != "deploy42" {
-		t.Fatalf("selection.RID = %q, want %q", selection.RID, "deploy42")
-	}
+	selection := resolveSelection(&st, 123)
 	if selection.Pending == nil {
 		t.Fatal("pending should not be nil")
 	}
-	if !selection.AllowPlainFallback {
-		t.Fatal("allowPlainFallback should be true")
-	}
-	if selection.AllowAnyRID {
-		t.Fatal("allowAnyRID should be false")
+	if selection.AllowAnyMessage {
+		t.Fatal("allowAnyMessage should be false when pending exists")
 	}
 }
 
-func TestResolveRIDSelectionAutoRIDWithoutPending(t *testing.T) {
+func TestResolveSelectionAllowsAnyWithoutPending(t *testing.T) {
 	st := state.State{}
-	selection, err := resolveRIDSelection(&st, 123, "")
-	if err != nil {
-		t.Fatalf("resolveRIDSelection() error = %v", err)
+
+	selection := resolveSelection(&st, 123)
+	if selection.Pending != nil {
+		t.Fatal("pending should be nil")
 	}
-	if !selection.AllowAnyRID {
-		t.Fatal("allowAnyRID should be true")
+	if !selection.AllowAnyMessage {
+		t.Fatal("allowAnyMessage should be true without pending")
 	}
-	if selection.RID != "" {
-		t.Fatalf("selection.RID = %q, want empty", selection.RID)
+}
+
+func TestResolveSelectionIgnoresPendingFromAnotherChat(t *testing.T) {
+	st := state.State{
+		Pending: &state.PendingRequest{ChatID: 999, SentMessageID: 10},
+	}
+
+	selection := resolveSelection(&st, 123)
+	if selection.Pending != nil {
+		t.Fatal("pending should be nil for a different chat")
+	}
+	if !selection.AllowAnyMessage {
+		t.Fatal("allowAnyMessage should be true when pending is for another chat")
 	}
 }
 
 func TestApplyUpdatesMatchesPendingFallback(t *testing.T) {
 	st := state.State{UpdateOffset: 0}
 	pending := &state.PendingRequest{
-		RID:           "abc123",
 		ChatID:        123,
 		SentMessageID: 10,
 		SentAtUnix:    1700000000,
@@ -63,13 +65,10 @@ func TestApplyUpdatesMatchesPendingFallback(t *testing.T) {
 		},
 	}}
 
-	selection := ridSelection{RID: "abc123", Pending: pending, AllowPlainFallback: true}
+	selection := matchSelection{Pending: pending}
 	matched, changed := applyUpdates(&st, updates, 123, selection, 0)
 	if matched == nil {
 		t.Fatal("expected matched update")
-	}
-	if matched.RID != "abc123" {
-		t.Fatalf("matched.RID = %q, want %q", matched.RID, "abc123")
 	}
 	if !changed {
 		t.Fatal("expected state change from offset advance")
@@ -79,7 +78,6 @@ func TestApplyUpdatesMatchesPendingFallback(t *testing.T) {
 func TestApplyUpdatesIgnoresReplyToDifferentMessage(t *testing.T) {
 	st := state.State{UpdateOffset: 0}
 	pending := &state.PendingRequest{
-		RID:           "abc123",
 		ChatID:        123,
 		SentMessageID: 10,
 		SentAtUnix:    1700000000,
@@ -99,16 +97,16 @@ func TestApplyUpdatesIgnoresReplyToDifferentMessage(t *testing.T) {
 		},
 	}}
 
-	selection := ridSelection{RID: "abc123", Pending: pending, AllowPlainFallback: true}
+	selection := matchSelection{Pending: pending}
 	matched, _ := applyUpdates(&st, updates, 123, selection, 0)
 	if matched != nil {
 		t.Fatal("did not expect match")
 	}
 }
 
-func TestApplyUpdatesAutoRIDFromReply(t *testing.T) {
+func TestApplyUpdatesAllowsAnyMessageWithoutPending(t *testing.T) {
 	st := state.State{UpdateOffset: 0}
-	selection := ridSelection{AllowAnyRID: true}
+	selection := matchSelection{AllowAnyMessage: true}
 
 	updates := []telegram.Update{{
 		UpdateID: 9,
@@ -117,10 +115,6 @@ func TestApplyUpdatesAutoRIDFromReply(t *testing.T) {
 			Date:      1700000002,
 			Text:      "Yep",
 			Chat:      telegram.Chat{ID: 123, Type: "private"},
-			ReplyToMessage: &telegram.Message{
-				MessageID: 10,
-				Text:      "[rid:deploy42] Need a call",
-			},
 		},
 	}}
 
@@ -128,17 +122,28 @@ func TestApplyUpdatesAutoRIDFromReply(t *testing.T) {
 	if matched == nil {
 		t.Fatal("expected matched update")
 	}
-	if matched.RID != "deploy42" {
-		t.Fatalf("matched.RID = %q, want %q", matched.RID, "deploy42")
-	}
 }
 
-func TestClearPendingForRID(t *testing.T) {
-	st := state.State{Pending: &state.PendingRequest{RID: "abc123"}}
-	if !clearPendingForRID(&st, "ABC123") {
-		t.Fatal("expected clearPendingForRID to return true")
+func TestClearPendingForSelection(t *testing.T) {
+	st := state.State{Pending: &state.PendingRequest{ChatID: 123, SentMessageID: 10}}
+	selection := matchSelection{Pending: &state.PendingRequest{ChatID: 123, SentMessageID: 10}}
+
+	if !clearPendingForSelection(&st, selection) {
+		t.Fatal("expected clearPendingForSelection to return true")
 	}
 	if st.Pending != nil {
 		t.Fatal("pending should be cleared")
+	}
+}
+
+func TestClearPendingForSelectionSkipsDifferentMessage(t *testing.T) {
+	st := state.State{Pending: &state.PendingRequest{ChatID: 123, SentMessageID: 11}}
+	selection := matchSelection{Pending: &state.PendingRequest{ChatID: 123, SentMessageID: 10}}
+
+	if clearPendingForSelection(&st, selection) {
+		t.Fatal("did not expect pending to be cleared")
+	}
+	if st.Pending == nil {
+		t.Fatal("pending should remain")
 	}
 }

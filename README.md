@@ -6,7 +6,7 @@ It is designed for away-from-keyboard workflows in Codex/OpenCode/Cursor where t
 
 - send a concise decision request,
 - wait or poll for your response,
-- correlate the reply reliably with a request ID (`rid`).
+- correlate the reply automatically to the latest pending message.
 
 ## Platform support
 
@@ -19,7 +19,6 @@ It is designed for away-from-keyboard workflows in Codex/OpenCode/Cursor where t
 
 - `coms` CLI (`cmd/coms`)
 - Telegram API client (`internal/telegram`)
-- Request correlation helpers (`internal/correlation`)
 - Local offset/pending state (`internal/state`)
 - Shared agent skill package (`skills/telegram-away`)
 
@@ -114,6 +113,26 @@ Windows:
 .\bin\coms.exe wait --timeout-sec 120
 ```
 
+## Updating an existing install
+
+After pulling new changes, rebuild `coms` and refresh your local skill copy.
+
+Linux/macOS:
+
+```bash
+go build -o ~/.local/bin/coms ./cmd/coms
+cp -R skills/telegram-away ~/.config/opencode/skills/
+cp -R skills/telegram-away ~/.codex/skills/
+```
+
+Windows (PowerShell):
+
+```powershell
+go build -o "$HOME\\go\\bin\\coms.exe" .\cmd\coms
+Copy-Item -Recurse -Force "skills\\telegram-away" "$HOME\\.config\\opencode\\skills\\"
+Copy-Item -Recurse -Force "skills\\telegram-away" "$HOME\\.codex\\skills\\"
+```
+
 ## Alternative install (Go toolchain)
 
 You can also install directly with:
@@ -151,7 +170,7 @@ You can copy `.env.example` as a reference for local env setup.
 
 ## CLI usage
 
-Send a question (RID auto-generated if omitted):
+Send a question:
 
 ```bash
 coms send --message "Need your decision on deploy window"
@@ -169,13 +188,6 @@ Poll once (non-blocking):
 coms poll
 ```
 
-Target a specific request explicitly when needed:
-
-```bash
-coms wait --rid deploy42 --timeout-sec 900
-coms poll --rid deploy42
-```
-
 Manual offset advance:
 
 ```bash
@@ -185,7 +197,7 @@ coms ack --update-id 123456
 ## Reply behavior
 
 - Preferred: reply directly to the Telegram message from the bot.
-- You do not need to type `[rid:...]` manually in normal flow.
+- You do not need to include a request ID in your reply.
 - `send` stores one pending request in local state (new sends replace old pending).
 - Successful `wait`/`poll` clears the matched pending request.
 - `wait` timeout does not clear pending, so a late reply can still match later.
